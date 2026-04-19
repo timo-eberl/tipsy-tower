@@ -29,6 +29,8 @@
 #define GROUND_EXTENT 5
 #define MAX_STATIC_GROUNDS (GROUND_EXTENT * GROUND_EXTENT)
 
+#define ELASTICITY 0.9f
+
 #if defined(__EMSCRIPTEN__) || defined(__ANDROID__)
 #define SHADER_PREFIX "#version 300 es\n"
 #else
@@ -138,7 +140,7 @@ static void spawn_sphere(void) {
 	tics_body_id body = tics_world_add_rigid_body(state.world, (tics_rigid_body_desc){
 		.shape = state.sh_sphere,
 		.mass = 2.0f,
-		.elasticity = 0.8f,
+		.elasticity = ELASTICITY,
 		.gravity_scale = 1.0f,
 		.transform = {
 			.position = {spawn_pos.x, spawn_pos.y, spawn_pos.z},
@@ -190,10 +192,8 @@ static void init(void) {
 		.face_winding = SG_FACEWINDING_CCW,
 	});
 
-	state.bind_sphere.vertex_buffers[0] = 
-		make_vbuf(icosphere_Icosphere_vertices, icosphere_vertex_buffer_sizes[0]);
-	state.bind_sphere.index_buffer = 
-		make_ibuf(icosphere_Icosphere_indices, icosphere_index_buffer_sizes[0]);
+	state.bind_sphere.vertex_buffers[0] = make_vbuf(sphere_vertices, sphere_vertices_length);
+	state.bind_sphere.index_buffer = make_ibuf(sphere_indices, sphere_indices_length);
 
 	state.world = tics_world_create((tics_world_desc){
 		.gravity = {0.0f, -9.81f, 0.0f},
@@ -205,9 +205,6 @@ static void init(void) {
 		.type = TICS_SHAPE_SPHERE,
 		.data.sphere = {.center = {0, 0, 0}, .radius = SPHERE_RADIUS}
 	});
-
-	tics_debug_upload_shape_mesh(state.sh_sphere, icosphere_Icosphere_vertices,
-								 icosphere_Icosphere_indices, icosphere_index_buffer_sizes[0]);
 
 	// Generate regular square ground grid
 	float spacing = 2.0f * SPHERE_RADIUS;
@@ -224,7 +221,7 @@ static void init(void) {
 			tics_world_add_static_body(state.world, (tics_static_body_desc){
 				.transform = {.position = {pos.x, pos.y, pos.z}, .rotation = {0, 0, 0, 1}},
 				.shape = state.sh_sphere,
-				.elasticity = 0.8f
+				.elasticity = ELASTICITY
 			});
 		}
 	}
@@ -284,7 +281,7 @@ static void frame(void) {
 		vs_params_t vs = {.mvp = su_mat4_mul(vp, model), .model = model};
 		
 		sg_apply_uniforms(0, &SG_RANGE(vs));
-		sg_draw(0, icosphere_index_buffer_sizes[0], 1);
+		sg_draw(0, sphere_indices_length, 1);
 	}
 
 	fs_params_t fs_dyn = {.color = {0.95f, 0.5f, 0.1f, 1.0f}};
@@ -296,7 +293,7 @@ static void frame(void) {
 		vs_params_t vs = {.mvp = su_mat4_mul(vp, model), .model = model};
 
 		sg_apply_uniforms(0, &SG_RANGE(vs));
-		sg_draw(0, icosphere_index_buffer_sizes[0], 1);
+		sg_draw(0, sphere_indices_length, 1);
 	}
 
 	sg_end_pass();
