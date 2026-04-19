@@ -9,7 +9,7 @@
 #include <stdio.h>
 
 const bool USE_WARM_STARTING = true;
-const bool USE_POSITION_SOLVER = false;
+const bool USE_POSITION_SOLVER = true;
 const int SOLVER_ITERATIONS = 10;
 
 void tics_world_step(tics_world* world, float delta) {
