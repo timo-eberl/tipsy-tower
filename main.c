@@ -107,7 +107,8 @@ typedef struct {
 typedef enum {
 	SPAWN_MODE_NONE = 0,
 	SPAWN_MODE_DYNAMIC = 1,
-	SPAWN_MODE_STATIC = 2
+	SPAWN_MODE_STATIC = 2,
+	SPAWN_MODE_DELETE = 3
 } spawn_mode_t;
 
 static struct {
@@ -128,13 +129,32 @@ static struct {
 	int entity_count;
 
 	su_vec3 ground_positions[MAX_STATIC_GROUNDS];
+	tics_body_id ground_bodies[MAX_STATIC_GROUNDS];
 	int ground_count;
 
 	tics_shape_id sh_sphere;
 	float max_tower_height;
 	
 	spawn_mode_t spawn_mode;
+	int target_type; // 0 = none, 1 = dynamic, 2 = static
+	int target_index;
 } state;
+
+static bool ray_sphere_intersect(su_vec3 ray_o, su_vec3 ray_d, su_vec3 sphere_c, float r,
+								 float* out_t) {
+	su_vec3 oc = su_vec3_sub(ray_o, sphere_c);
+	float b = 2.0f * su_vec3_dot(oc, ray_d);
+	float c = su_vec3_dot(oc, oc) - (r * r);
+	float discriminant = b * b - 4.0f * c;
+	if (discriminant < 0.0f) return false;
+	
+	float t = (-b - sqrtf(discriminant)) / 2.0f;
+	if (t < 0.0f) t = (-b + sqrtf(discriminant)) / 2.0f;
+	if (t < 0.0f) return false;
+	
+	*out_t = t;
+	return true;
+}
 
 static su_mat4 mat4_from_tics(tics_transform t) {
 	float x = t.rotation.x, y = t.rotation.y, z = t.rotation.z, w = t.rotation.w;
@@ -168,7 +188,7 @@ static sg_buffer make_ibuf(const uint32_t* data, size_t count) {
 
 static su_vec3 get_dynamic_spawn_position(void) {
 	su_vec3 forward = su_vec3_normalize(su_vec3_sub(state.camera.target, state.camera.position));
-	return su_vec3_add(state.camera.position, su_vec3_scale(forward, 4.0f));
+	return su_vec3_add(state.camera.position, su_vec3_scale(forward, 6.0f));
 }
 
 // Calculates the intersection of the camera's forward vector with the XZ plane (y=0)
@@ -210,13 +230,15 @@ static void spawn_static_sphere(void) {
 	su_vec3 spawn_pos;
 	if (!get_static_spawn_position(&spawn_pos)) return;
 
-	state.ground_positions[state.ground_count++] = spawn_pos;
+	state.ground_positions[state.ground_count] = spawn_pos;
 
-	tics_world_add_static_body(state.world, (tics_static_body_desc){
+	tics_body_id body = tics_world_add_static_body(state.world, (tics_static_body_desc){
 		.transform = {.position = {spawn_pos.x, 0.0f, spawn_pos.z}, .rotation = {0, 0, 0, 1}},
 		.shape = state.sh_sphere,
 		.elasticity = ELASTICITY
 	});
+
+	state.ground_bodies[state.ground_count++] = body;
 }
 
 static void init(void) {
@@ -327,13 +349,15 @@ static void init(void) {
 		for (int x = 0; x < 2; x++) {
 			su_vec3 pos = {(x * spacing) - offset, 0.0f, (z * spacing) - offset};
 			
-			state.ground_positions[state.ground_count++] = pos;
+			state.ground_positions[state.ground_count] = pos;
 
-			tics_world_add_static_body(state.world, (tics_static_body_desc){
+			tics_body_id body = tics_world_add_static_body(state.world, (tics_static_body_desc){
 				.transform = {.position = {pos.x, pos.y, pos.z}, .rotation = {0, 0, 0, 1}},
 				.shape = state.sh_sphere,
 				.elasticity = ELASTICITY
 			});
+
+			state.ground_bodies[state.ground_count++] = body;
 		}
 	}
 }
@@ -379,31 +403,59 @@ static void frame(void) {
 	su_mat4 view = su_mat4_look_at(state.camera.position, state.camera.target, state.camera.up);
 	su_mat4 vp = su_mat4_mul(proj, view);
 
+	state.target_type = 0;
+	state.target_index = -1;
+	
+	if (state.spawn_mode == SPAWN_MODE_DELETE) {
+		su_vec3 ray_o = state.camera.position;
+		su_vec3 ray_d = su_vec3_normalize(su_vec3_sub(state.camera.target, state.camera.position));
+		float min_t = 1e9f;
+		
+		for (int i = 0; i < state.entity_count; i++) {
+			tics_transform tf = tics_body_get_transform(state.world, state.entities[i].body);
+			float t;
+			if (ray_sphere_intersect(ray_o, ray_d, (su_vec3){tf.position.x, tf.position.y, tf.position.z}, SPHERE_RADIUS, &t)) {
+				if (t < min_t) { min_t = t; state.target_type = 1; state.target_index = i; }
+			}
+		}
+		
+		for (int i = 0; i < state.ground_count; i++) {
+			float t;
+			if (ray_sphere_intersect(ray_o, ray_d, state.ground_positions[i], SPHERE_RADIUS, &t)) {
+				if (t < min_t) { min_t = t; state.target_type = 2; state.target_index = i; }
+			}
+		}
+	}
+
 	sg_begin_pass(&(sg_pass){.action = state.pass_action, .swapchain = sglue_swapchain()});
 	sg_apply_pipeline(state.pip);
 	sg_apply_bindings(&state.bind_sphere);
-
-	fs_params_t fs_static = {.color = {0.15f, 0.4f, 0.8f, 1.0f}};
-	sg_apply_uniforms(1, &SG_RANGE(fs_static));
 
 	for (int i = 0; i < state.ground_count; i++) {
 		su_vec3 pos = state.ground_positions[i];
 		su_mat4 model = mat4_from_tics((tics_transform){{pos.x, pos.y, pos.z}, {0, 0, 0, 1}});
 		vs_params_t vs = {.mvp = su_mat4_mul(vp, model), .model = model};
-		
 		sg_apply_uniforms(0, &SG_RANGE(vs));
+
+		fs_params_t fs_static = {.color = {0.15f, 0.4f, 0.8f, 1.0f}};
+		if (state.spawn_mode == SPAWN_MODE_DELETE && state.target_type == 2 && state.target_index == i) {
+			fs_static.color[0] = 1.0f; fs_static.color[1] = 0.2f; fs_static.color[2] = 0.2f;
+		}
+		sg_apply_uniforms(1, &SG_RANGE(fs_static));
 		sg_draw(0, sphere_indices_length, 1);
 	}
-
-	fs_params_t fs_dyn = {.color = {0.95f, 0.5f, 0.1f, 1.0f}};
-	sg_apply_uniforms(1, &SG_RANGE(fs_dyn));
 
 	for (int i = 0; i < state.entity_count; i++) {
 		tics_transform tf = tics_body_get_transform(state.world, state.entities[i].body);
 		su_mat4 model = mat4_from_tics(tf);
 		vs_params_t vs = {.mvp = su_mat4_mul(vp, model), .model = model};
-
 		sg_apply_uniforms(0, &SG_RANGE(vs));
+
+		fs_params_t fs_dyn = {.color = {0.95f, 0.5f, 0.1f, 1.0f}};
+		if (state.spawn_mode == SPAWN_MODE_DELETE && state.target_type == 1 && state.target_index == i) {
+			fs_dyn.color[0] = 1.0f; fs_dyn.color[1] = 0.2f; fs_dyn.color[2] = 0.2f;
+		}
+		sg_apply_uniforms(1, &SG_RANGE(fs_dyn));
 		sg_draw(0, sphere_indices_length, 1);
 	}
 
@@ -419,7 +471,7 @@ static void frame(void) {
 	sg_apply_bindings(&state.bind_sphere);
 
 	// Render Preview Sphere
-	if (state.spawn_mode != SPAWN_MODE_NONE) {
+	if (state.spawn_mode == SPAWN_MODE_DYNAMIC || state.spawn_mode == SPAWN_MODE_STATIC) {
 		su_vec3 preview_pos = {0};
 		bool render_preview = false;
 		fs_params_t fs_preview;
@@ -457,17 +509,30 @@ static void event(const sapp_event* ev) {
 	su_input_update(&state.input, ev);
 
 	if (ev->type == SAPP_EVENTTYPE_KEY_DOWN && !ev->key_repeat) {
-		if (ev->key_code == SAPP_KEYCODE_0) {
-			state.spawn_mode = SPAWN_MODE_NONE;
-		} else if (ev->key_code == SAPP_KEYCODE_1) {
+		if (ev->key_code == SAPP_KEYCODE_1) {
 			state.spawn_mode = SPAWN_MODE_DYNAMIC;
 		} else if (ev->key_code == SAPP_KEYCODE_2) {
 			state.spawn_mode = SPAWN_MODE_STATIC;
+		} else if (ev->key_code == SAPP_KEYCODE_3) {
+			state.spawn_mode = SPAWN_MODE_DELETE;
 		} else if (ev->key_code == SAPP_KEYCODE_SPACE) {
 			if (state.spawn_mode == SPAWN_MODE_DYNAMIC) {
 				spawn_dynamic_sphere();
 			} else if (state.spawn_mode == SPAWN_MODE_STATIC) {
 				spawn_static_sphere();
+			} else if (state.spawn_mode == SPAWN_MODE_DELETE) {
+				if (state.target_type == 1 && state.target_index >= 0) {
+					tics_world_remove_body(state.world, state.entities[state.target_index].body);
+					state.entities[state.target_index] = state.entities[state.entity_count - 1];
+					state.entity_count--;
+					state.target_index = -1;
+				} else if (state.target_type == 2 && state.target_index >= 0) {
+					tics_world_remove_body(state.world, state.ground_bodies[state.target_index]);
+					state.ground_positions[state.target_index] = state.ground_positions[state.ground_count - 1];
+					state.ground_bodies[state.target_index] = state.ground_bodies[state.ground_count - 1];
+					state.ground_count--;
+					state.target_index = -1;
+				}
 			}
 		}
 	}
