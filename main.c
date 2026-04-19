@@ -26,8 +26,7 @@
 
 #define SPHERE_RADIUS 1.0f
 #define DYNAMIC_BODIES 1000
-#define GROUND_EXTENT 5
-#define MAX_STATIC_GROUNDS (GROUND_EXTENT * GROUND_EXTENT)
+#define MAX_STATIC_GROUNDS 10
 
 #define ELASTICITY 0.9f
 
@@ -37,8 +36,6 @@
 #define SHADER_PREFIX "#version 330\n"
 #endif
 
-// The vertex shader passes the local position to the fragment shader.
-// Because the sphere is centered at the origin, the local position serves as the normal direction.
 static const char* vs_source = SHADER_PREFIX 
 	"uniform mat4 mvp;\n"
 	"uniform mat4 model;\n"
@@ -80,6 +77,12 @@ typedef struct {
 	tics_body_id body;
 } game_entity;
 
+typedef enum {
+	SPAWN_MODE_NONE = 0,
+	SPAWN_MODE_DYNAMIC = 1,
+	SPAWN_MODE_STATIC = 2
+} spawn_mode_t;
+
 static struct {
 	tics_world* world;
 	float accumulator;
@@ -99,6 +102,8 @@ static struct {
 
 	tics_shape_id sh_sphere;
 	float max_tower_height;
+	
+	spawn_mode_t spawn_mode;
 } state;
 
 static su_mat4 mat4_from_tics(tics_transform t) {
@@ -131,15 +136,29 @@ static sg_buffer make_ibuf(const uint32_t* data, size_t count) {
 	});
 }
 
-static su_vec3 get_spawn_position(void) {
+static su_vec3 get_dynamic_spawn_position(void) {
 	su_vec3 forward = su_vec3_normalize(su_vec3_sub(state.camera.target, state.camera.position));
 	return su_vec3_add(state.camera.position, su_vec3_scale(forward, 4.0f));
 }
 
-static void spawn_sphere(void) {
+// Calculates the intersection of the camera's forward vector with the XZ plane (y=0)
+static bool get_static_spawn_position(su_vec3* out_pos) {
+	su_vec3 forward = su_vec3_normalize(su_vec3_sub(state.camera.target, state.camera.position));
+	
+	// If looking upwards or parallel to the horizon, it will never intersect the ground
+	if (forward.y >= -0.0001f) return false;
+	
+	float t = -state.camera.position.y / forward.y;
+	if (t < 0.0f) return false; // Safety check, intersection is behind camera
+
+	*out_pos = su_vec3_add(state.camera.position, su_vec3_scale(forward, t));
+	return true;
+}
+
+static void spawn_dynamic_sphere(void) {
 	if (state.entity_count >= DYNAMIC_BODIES) return;
 
-	su_vec3 spawn_pos = get_spawn_position();
+	su_vec3 spawn_pos = get_dynamic_spawn_position();
 
 	tics_body_id body = tics_world_add_rigid_body(state.world, (tics_rigid_body_desc){
 		.shape = state.sh_sphere,
@@ -155,6 +174,21 @@ static void spawn_sphere(void) {
 	state.entities[state.entity_count++] = (game_entity){ .body = body };
 }
 
+static void spawn_static_sphere(void) {
+	if (state.ground_count >= MAX_STATIC_GROUNDS) return;
+	
+	su_vec3 spawn_pos;
+	if (!get_static_spawn_position(&spawn_pos)) return;
+
+	state.ground_positions[state.ground_count++] = spawn_pos;
+
+	tics_world_add_static_body(state.world, (tics_static_body_desc){
+		.transform = {.position = {spawn_pos.x, 0.0f, spawn_pos.z}, .rotation = {0, 0, 0, 1}},
+		.shape = state.sh_sphere,
+		.elasticity = ELASTICITY
+	});
+}
+
 static void init(void) {
 	sg_setup(&(sg_desc){.environment = sglue_environment()});
 	
@@ -168,6 +202,7 @@ static void init(void) {
 	state.camera.position = (su_vec3){0.0f, 5.0f, 15.0f};
 	state.camera.target = (su_vec3){0.0f, 2.0f, 0.0f};
 	state.camera.up = (su_vec3){0.0f, 1.0f, 0.0f};
+	state.spawn_mode = SPAWN_MODE_DYNAMIC;
 
 	sg_shader shd = sg_make_shader(&(sg_shader_desc){
 		.vertex_func.source = vs_source,
@@ -217,15 +252,13 @@ static void init(void) {
 		.data.sphere = {.center = {0, 0, 0}, .radius = SPHERE_RADIUS}
 	});
 
-	// Generate regular square ground grid
+	// Generate 2x2 regular square ground grid centered around origin
 	float spacing = 2.0f * SPHERE_RADIUS;
-	int half_ext = GROUND_EXTENT / 2;
-
-	for (int z = -half_ext; z <= half_ext; z++) {
-		for (int x = -half_ext; x <= half_ext; x++) {
-			if (state.ground_count >= MAX_STATIC_GROUNDS) break;
-			
-			su_vec3 pos = {x * spacing, 0.0f, z * spacing};
+	float offset = spacing / 2.0f;
+	
+	for (int z = 0; z < 2; z++) {
+		for (int x = 0; x < 2; x++) {
+			su_vec3 pos = {(x * spacing) - offset, 0.0f, (z * spacing) - offset};
 			
 			state.ground_positions[state.ground_count++] = pos;
 
@@ -307,16 +340,34 @@ static void frame(void) {
 		sg_draw(0, sphere_indices_length, 1);
 	}
 
-	su_vec3 preview_pos = get_spawn_position();
-	su_mat4 preview_model = mat4_from_tics((tics_transform){
-		{preview_pos.x, preview_pos.y, preview_pos.z}, {0, 0, 0, 1}
-	});
-	vs_params_t vs_preview = {.mvp = su_mat4_mul(vp, preview_model), .model = preview_model};
-	fs_params_t fs_preview = {.color = {0.95f, 0.5f, 0.1f, 0.4f}};
+	// Render Preview Sphere
+	if (state.spawn_mode != SPAWN_MODE_NONE) {
+		su_vec3 preview_pos = {0};
+		bool render_preview = false;
+		fs_params_t fs_preview;
 
-	sg_apply_uniforms(0, &SG_RANGE(vs_preview));
-	sg_apply_uniforms(1, &SG_RANGE(fs_preview));
-	sg_draw(0, sphere_indices_length, 1);
+		if (state.spawn_mode == SPAWN_MODE_DYNAMIC) {
+			preview_pos = get_dynamic_spawn_position();
+			fs_preview.color[0] = 0.95f; fs_preview.color[1] = 0.5f; fs_preview.color[2] = 0.1f; fs_preview.color[3] = 0.4f;
+			render_preview = true;
+		} else if (state.spawn_mode == SPAWN_MODE_STATIC) {
+			if (get_static_spawn_position(&preview_pos)) {
+				fs_preview.color[0] = 0.15f; fs_preview.color[1] = 0.4f; fs_preview.color[2] = 0.8f; fs_preview.color[3] = 0.4f;
+				render_preview = true;
+			}
+		}
+
+		if (render_preview) {
+			su_mat4 preview_model = mat4_from_tics((tics_transform){
+				{preview_pos.x, preview_pos.y, preview_pos.z}, {0, 0, 0, 1}
+			});
+			vs_params_t vs_preview = {.mvp = su_mat4_mul(vp, preview_model), .model = preview_model};
+
+			sg_apply_uniforms(0, &SG_RANGE(vs_preview));
+			sg_apply_uniforms(1, &SG_RANGE(fs_preview));
+			sg_draw(0, sphere_indices_length, 1);
+		}
+	}
 
 	sg_end_pass();
 	sg_commit();
@@ -328,8 +379,18 @@ static void event(const sapp_event* ev) {
 	su_input_update(&state.input, ev);
 
 	if (ev->type == SAPP_EVENTTYPE_KEY_DOWN && !ev->key_repeat) {
-		if (ev->key_code == SAPP_KEYCODE_SPACE) {
-			spawn_sphere();
+		if (ev->key_code == SAPP_KEYCODE_0) {
+			state.spawn_mode = SPAWN_MODE_NONE;
+		} else if (ev->key_code == SAPP_KEYCODE_1) {
+			state.spawn_mode = SPAWN_MODE_DYNAMIC;
+		} else if (ev->key_code == SAPP_KEYCODE_2) {
+			state.spawn_mode = SPAWN_MODE_STATIC;
+		} else if (ev->key_code == SAPP_KEYCODE_SPACE) {
+			if (state.spawn_mode == SPAWN_MODE_DYNAMIC) {
+				spawn_dynamic_sphere();
+			} else if (state.spawn_mode == SPAWN_MODE_STATIC) {
+				spawn_static_sphere();
+			}
 		}
 	}
 }
