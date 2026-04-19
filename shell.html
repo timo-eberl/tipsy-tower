@@ -23,6 +23,7 @@
 			background-color: #000;
 			width: 100vw;
 			height: 100vh;
+			outline: none; /* Removes the white highlight ring when focused */
 		}
 	</style>
 </head>
@@ -32,10 +33,23 @@
 
 	<!-- Minimal Emscripten module setup -->
 	<script type='text/javascript'>
+		var canvas = document.getElementById('canvas');
+
+		// Force the browser to focus the iframe window and canvas.
+		// This routes keyboard events to Sokol correctly.
+		canvas.addEventListener('click', function() {
+			window.focus();
+			canvas.focus();
+		});
+
+		// Focus early when the mouse enters the frame
+		canvas.addEventListener('mouseenter', function() {
+			window.focus();
+			canvas.focus();
+		});
+
 		var Module = {
-			canvas: (function () {
-				return document.getElementById('canvas');
-			})()
+			canvas: canvas
 		};
 	</script>
 
