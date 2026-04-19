@@ -139,6 +139,7 @@ static struct {
 	spawn_mode_t spawn_mode;
 	int target_type; // 0 = none, 1 = dynamic, 2 = static
 	int target_index;
+	bool ui_visible;
 } state;
 
 static bool ray_sphere_intersect(su_vec3 ray_o, su_vec3 ray_d, su_vec3 sphere_c, float r,
@@ -256,6 +257,7 @@ static void init(void) {
 	state.camera.target = (su_vec3){0.0f, 2.0f, 0.0f};
 	state.camera.up = (su_vec3){0.0f, 1.0f, 0.0f};
 	state.spawn_mode = SPAWN_MODE_DYNAMIC;
+	state.ui_visible = true;
 
 	sg_shader shd = sg_make_shader(&(sg_shader_desc){
 		.vertex_func.source = vs_source,
@@ -507,31 +509,34 @@ static void frame(void) {
 	}
 
 	// --- Render UI Overlay ---
-	sdtx_canvas(w * 0.5f, h * 0.5f); // Scale up text x2
-	sdtx_origin(1.0f, 1.0f); // Margin
-	sdtx_home();
-	
-	sdtx_color3b(255, 255, 255);
-	sdtx_printf("Max Tower Height: %.2f\n\n", state.max_tower_height);
-	
-	sdtx_puts("Controls:\n");
-	sdtx_puts(" [1] Spawn Dynamic\n");
-	sdtx_puts(" [2] Spawn Static\n");
-	sdtx_puts(" [3] Delete Mode\n");
-	sdtx_puts(" [Space] Execute Action\n\n");
-	
-	sdtx_puts("Current Mode: ");
-	if (state.spawn_mode == SPAWN_MODE_DYNAMIC) {
-		sdtx_color3b(242, 128, 25); // Orange
-		sdtx_puts("Dynamic Spawn\n");
-	} else if (state.spawn_mode == SPAWN_MODE_STATIC) {
-		sdtx_color3b(38, 102, 204); // Blue
-		sdtx_puts("Static Spawn\n");
-	} else if (state.spawn_mode == SPAWN_MODE_DELETE) {
-		sdtx_color3b(255, 51, 51); // Red
-		sdtx_puts("Delete Mode\n");
+	if (state.ui_visible) {
+		sdtx_canvas(w * 0.5f, h * 0.5f); // Scale up text x2
+		sdtx_origin(1.0f, 1.0f); // Margin
+		sdtx_home();
+		
+		sdtx_color3b(255, 255, 255);
+		sdtx_printf("Max Tower Height: %.2f\n\n", state.max_tower_height);
+		
+		sdtx_puts("Controls:\n");
+		
+		if (state.spawn_mode == SPAWN_MODE_DYNAMIC) sdtx_color3b(242, 128, 25);
+		else sdtx_color3b(150, 150, 150);
+		sdtx_puts(" [1] Spawn Dynamic\n");
+		
+		if (state.spawn_mode == SPAWN_MODE_STATIC) sdtx_color3b(38, 102, 204);
+		else sdtx_color3b(150, 150, 150);
+		sdtx_puts(" [2] Spawn Static\n");
+		
+		if (state.spawn_mode == SPAWN_MODE_DELETE) sdtx_color3b(255, 51, 51);
+		else sdtx_color3b(150, 150, 150);
+		sdtx_puts(" [3] Delete Mode\n");
+		
+		sdtx_color3b(255, 255, 255);
+		sdtx_puts(" [Space] Execute Action\n");
+		sdtx_puts(" [Tab]   Toggle UI\n");
+		
+		sdtx_draw();
 	}
-	sdtx_draw();
 
 	sg_end_pass();
 	sg_commit();
@@ -548,7 +553,9 @@ static void event(const sapp_event* ev) {
 	}
 
 	if (ev->type == SAPP_EVENTTYPE_KEY_DOWN && !ev->key_repeat) {
-		if (ev->key_code == SAPP_KEYCODE_1) {
+		if (ev->key_code == SAPP_KEYCODE_TAB) {
+			state.ui_visible = !state.ui_visible;
+		} else if (ev->key_code == SAPP_KEYCODE_1) {
 			state.spawn_mode = SPAWN_MODE_DYNAMIC;
 		} else if (ev->key_code == SAPP_KEYCODE_2) {
 			state.spawn_mode = SPAWN_MODE_STATIC;
