@@ -20,6 +20,7 @@
 #include "sokol_app.h"
 #include "sokol_gfx.h"
 #include "sokol_glue.h"
+#include "sokol_debugtext.h"
 
 #define PHYSICS_TIMESTEP (1.0f / 120.0f)
 #define MAX_FRAME_TIME 0.25f
@@ -360,6 +361,10 @@ static void init(void) {
 			state.ground_bodies[state.ground_count++] = body;
 		}
 	}
+
+	sdtx_setup(&(sdtx_desc_t){
+		.fonts[0] = sdtx_font_oric()
+	});
 }
 
 static void frame(void) {
@@ -501,6 +506,33 @@ static void frame(void) {
 		}
 	}
 
+	// --- Render UI Overlay ---
+	sdtx_canvas(w * 0.5f, h * 0.5f); // Scale up text x2
+	sdtx_origin(1.0f, 1.0f); // Margin
+	sdtx_home();
+	
+	sdtx_color3b(255, 255, 255);
+	sdtx_printf("Max Tower Height: %.2f\n\n", state.max_tower_height);
+	
+	sdtx_puts("Controls:\n");
+	sdtx_puts(" [1] Spawn Dynamic\n");
+	sdtx_puts(" [2] Spawn Static\n");
+	sdtx_puts(" [3] Delete Mode\n");
+	sdtx_puts(" [Space] Execute Action\n\n");
+	
+	sdtx_puts("Current Mode: ");
+	if (state.spawn_mode == SPAWN_MODE_DYNAMIC) {
+		sdtx_color3b(242, 128, 25); // Orange
+		sdtx_puts("Dynamic Spawn\n");
+	} else if (state.spawn_mode == SPAWN_MODE_STATIC) {
+		sdtx_color3b(38, 102, 204); // Blue
+		sdtx_puts("Static Spawn\n");
+	} else if (state.spawn_mode == SPAWN_MODE_DELETE) {
+		sdtx_color3b(255, 51, 51); // Red
+		sdtx_puts("Delete Mode\n");
+	}
+	sdtx_draw();
+
 	sg_end_pass();
 	sg_commit();
 
@@ -550,6 +582,7 @@ static void event(const sapp_event* ev) {
 }
 
 static void cleanup(void) {
+	sdtx_shutdown();
 	tics_world_destroy(state.world);
 	sg_shutdown();
 }

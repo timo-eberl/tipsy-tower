@@ -101,8 +101,8 @@ void su_input_end_frame(su_input* input) {
 void su_camera_navigate(su_camera* cam, const su_input* input, float dt_seconds) {
 	// Look around
 	{
-		float dx = input->mouse_delta.x * 0.004f;
-		float dy = input->mouse_delta.y * 0.004f;
+		float dx = input->mouse_delta.x * 0.003f;
+		float dy = input->mouse_delta.y * 0.003f;
 
 		su_vec3 fwd = su_vec3_normalize(su_vec3_sub(cam->target, cam->position));
 		// Yaw
