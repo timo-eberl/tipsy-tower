@@ -80,22 +80,15 @@ void su_input_update(su_input* input, const sapp_event* ev) {
 
 	if (ev->type == SAPP_EVENTTYPE_MOUSE_DOWN && ev->mouse_button == SAPP_MOUSEBUTTON_RIGHT) {
 		input->rmb_down = true;
-#ifndef __EMSCRIPTEN__
-		sapp_lock_mouse(true); // Hide and lock cursor
-#endif
 	}
 	if (ev->type == SAPP_EVENTTYPE_MOUSE_UP && ev->mouse_button == SAPP_MOUSEBUTTON_RIGHT) {
 		input->rmb_down = false;
-#ifndef __EMSCRIPTEN__
-		sapp_lock_mouse(false); // Restore cursor
-#endif
 	}
 
 	if (ev->type == SAPP_EVENTTYPE_MOUSE_MOVE) {
 		input->mouse_delta.x += ev->mouse_dx;
 		input->mouse_delta.y += ev->mouse_dy;
 	}
-	if (ev->type == SAPP_EVENTTYPE_MOUSE_SCROLL) { input->mouse_wheel += ev->scroll_y; }
 }
 
 void su_input_end_frame(su_input* input) {
@@ -107,9 +100,9 @@ void su_input_end_frame(su_input* input) {
 // --- CAMERA LOGIC ---
 void su_camera_navigate(su_camera* cam, const su_input* input, float dt_seconds) {
 	// Look around
-	if (input->rmb_down) {
-		float dx = input->mouse_delta.x * 0.003f;
-		float dy = input->mouse_delta.y * 0.003f;
+	{
+		float dx = input->mouse_delta.x * 0.004f;
+		float dy = input->mouse_delta.y * 0.004f;
 
 		su_vec3 fwd = su_vec3_normalize(su_vec3_sub(cam->target, cam->position));
 		// Yaw

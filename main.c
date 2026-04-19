@@ -366,7 +366,9 @@ static void frame(void) {
 	float dt = (float)sapp_frame_duration();
 	float clamped_dt = dt > MAX_FRAME_TIME ? MAX_FRAME_TIME : dt;
 
-	su_camera_navigate(&state.camera, &state.input, clamped_dt);
+	if (sapp_mouse_locked()) {
+		su_camera_navigate(&state.camera, &state.input, clamped_dt);
+	}
 
 	state.accumulator += clamped_dt;
 	while (state.accumulator >= PHYSICS_TIMESTEP) {
@@ -508,6 +510,11 @@ static void frame(void) {
 static void event(const sapp_event* ev) {
 	su_input_update(&state.input, ev);
 
+	// Request pointer lock and keyboard focus on left click
+	if (ev->type == SAPP_EVENTTYPE_MOUSE_DOWN && ev->mouse_button == SAPP_MOUSEBUTTON_LEFT) {
+		sapp_lock_mouse(true);
+	}
+
 	if (ev->type == SAPP_EVENTTYPE_KEY_DOWN && !ev->key_repeat) {
 		if (ev->key_code == SAPP_KEYCODE_1) {
 			state.spawn_mode = SPAWN_MODE_DYNAMIC;
@@ -534,6 +541,10 @@ static void event(const sapp_event* ev) {
 					state.target_index = -1;
 				}
 			}
+		} else if (ev->key_code == SAPP_KEYCODE_ESCAPE) {
+			#ifndef __EMSCRIPTEN__
+			sapp_lock_mouse(false); // Restore cursor (Browser handle this by themself)
+			#endif
 		}
 	}
 }
