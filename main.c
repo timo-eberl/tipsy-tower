@@ -60,10 +60,10 @@ static const char* fs_source = SHADER_PREFIX
 	"void main() {\n"
 	"  vec3 normal = normalize(v_world_normal);\n"
 	"  vec3 light_dir = normalize(vec3(0.5, 1.0, 0.3));\n"
-	"  float n_dot_l = max(dot(normal, light_dir), 0.15);\n"
+	"  float n_dot_l = max(dot(normal, light_dir), 0.25);\n"
 	"  vec3 grid = step(fract(v_local_pos * 4.0), vec3(0.08));\n"
 	"  float is_grid = max(max(grid.x, grid.y), grid.z);\n"
-	"  vec3 final_color = mix(color.rgb, vec3(0.05), is_grid * 0.4) * n_dot_l;\n"
+	"  vec3 final_color = mix(color.rgb, vec3(1), is_grid * 0.5) * n_dot_l;\n"
 	"  frag_color = vec4(final_color, color.a);\n"
 	"}\n";
 
@@ -131,11 +131,15 @@ static sg_buffer make_ibuf(const uint32_t* data, size_t count) {
 	});
 }
 
+static su_vec3 get_spawn_position(void) {
+	su_vec3 forward = su_vec3_normalize(su_vec3_sub(state.camera.target, state.camera.position));
+	return su_vec3_add(state.camera.position, su_vec3_scale(forward, 4.0f));
+}
+
 static void spawn_sphere(void) {
 	if (state.entity_count >= DYNAMIC_BODIES) return;
 
-	su_vec3 forward = su_vec3_normalize(su_vec3_sub(state.camera.target, state.camera.position));
-	su_vec3 spawn_pos = su_vec3_add(state.camera.position, su_vec3_scale(forward, 4.0f));
+	su_vec3 spawn_pos = get_spawn_position();
 
 	tics_body_id body = tics_world_add_rigid_body(state.world, (tics_rigid_body_desc){
 		.shape = state.sh_sphere,
@@ -190,6 +194,13 @@ static void init(void) {
 		.depth = {.compare = SG_COMPAREFUNC_LESS_EQUAL, .write_enabled = true},
 		.cull_mode = SG_CULLMODE_BACK,
 		.face_winding = SG_FACEWINDING_CCW,
+		.colors[0].blend = {
+			.enabled = true,
+			.src_factor_rgb = SG_BLENDFACTOR_SRC_ALPHA,
+			.dst_factor_rgb = SG_BLENDFACTOR_ONE_MINUS_SRC_ALPHA,
+			.src_factor_alpha = SG_BLENDFACTOR_ONE,
+			.dst_factor_alpha = SG_BLENDFACTOR_ZERO
+		}
 	});
 
 	state.bind_sphere.vertex_buffers[0] = make_vbuf(sphere_vertices, sphere_vertices_length);
@@ -197,8 +208,8 @@ static void init(void) {
 
 	state.world = tics_world_create((tics_world_desc){
 		.gravity = {0.0f, -9.81f, 0.0f},
-		.air_friction_linear = 0.1f,
-		.air_friction_angular = 0.8f
+		.air_friction_linear = 0.0f,
+		.air_friction_angular = 0.5f
 	});
 
 	state.sh_sphere = tics_create_shape(state.world, (tics_shape_desc){
@@ -295,6 +306,17 @@ static void frame(void) {
 		sg_apply_uniforms(0, &SG_RANGE(vs));
 		sg_draw(0, sphere_indices_length, 1);
 	}
+
+	su_vec3 preview_pos = get_spawn_position();
+	su_mat4 preview_model = mat4_from_tics((tics_transform){
+		{preview_pos.x, preview_pos.y, preview_pos.z}, {0, 0, 0, 1}
+	});
+	vs_params_t vs_preview = {.mvp = su_mat4_mul(vp, preview_model), .model = preview_model};
+	fs_params_t fs_preview = {.color = {0.95f, 0.5f, 0.1f, 0.4f}};
+
+	sg_apply_uniforms(0, &SG_RANGE(vs_preview));
+	sg_apply_uniforms(1, &SG_RANGE(fs_preview));
+	sg_draw(0, sphere_indices_length, 1);
 
 	sg_end_pass();
 	sg_commit();
