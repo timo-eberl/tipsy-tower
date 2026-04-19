@@ -73,6 +73,33 @@ typedef struct {
 	float color[4];
 } fs_params_t;
 
+static const char* vs_grid_source = SHADER_PREFIX 
+	"uniform mat4 mvp;\n"
+	"layout(location=0) in vec3 position;\n"
+	"out vec3 v_pos;\n"
+	"void main() {\n"
+	"  gl_Position = mvp * vec4(position, 1.0);\n"
+	"  v_pos = position;\n"
+	"}\n";
+
+static const char* fs_grid_source = SHADER_PREFIX 
+	"precision highp float;\n"
+	"in vec3 v_pos;\n"
+	"out vec4 frag_color;\n"
+	"void main() {\n"
+	"  vec2 coord = v_pos.xz * 0.5;\n"
+	"  vec2 grid = abs(fract(coord + 0.5) - 0.5) / fwidth(coord);\n"
+	"  float line = min(grid.x, grid.y);\n"
+	"  float alpha = 1.0 - min(line, 1.0);\n"
+	"  float dist = length(v_pos.xz);\n"
+	"  alpha *= clamp(1.0 - dist / 50.0, 0.0, 1.0);\n"
+	"  frag_color = vec4(1.0, 1.0, 1.0, alpha * 0.3);\n"
+	"}\n";
+
+typedef struct {
+	su_mat4 mvp;
+} vs_grid_params_t;
+
 typedef struct {
 	tics_body_id body;
 } game_entity;
@@ -93,6 +120,9 @@ static struct {
 	sg_pass_action pass_action;
 	sg_pipeline pip;
 	sg_bindings bind_sphere;
+
+	sg_pipeline pip_grid;
+	sg_bindings bind_grid;
 
 	game_entity entities[DYNAMIC_BODIES];
 	int entity_count;
@@ -241,6 +271,43 @@ static void init(void) {
 	state.bind_sphere.vertex_buffers[0] = make_vbuf(sphere_vertices, sphere_vertices_length);
 	state.bind_sphere.index_buffer = make_ibuf(sphere_indices, sphere_indices_length);
 
+	static const float quad_verts[] = {
+		-100.0f, -1.0f, -100.0f,
+		 100.0f, -1.0f, -100.0f,
+		-100.0f, -1.0f,  100.0f,
+		 100.0f, -1.0f,  100.0f
+	};
+	state.bind_grid.vertex_buffers[0] = sg_make_buffer(&(sg_buffer_desc){
+		.usage = {.vertex_buffer = true, .immutable = true},
+		.data = (sg_range){quad_verts, sizeof(quad_verts)}
+	});
+
+	sg_shader shd_grid = sg_make_shader(&(sg_shader_desc){
+		.vertex_func.source = vs_grid_source,
+		.fragment_func.source = fs_grid_source,
+		.uniform_blocks[0] = {
+			.stage = SG_SHADERSTAGE_VERTEX,
+			.size = sizeof(vs_grid_params_t),
+			.glsl_uniforms = {
+				[0] = {.type = SG_UNIFORMTYPE_MAT4, .glsl_name = "mvp"}
+			}
+		}
+	});
+
+	state.pip_grid = sg_make_pipeline(&(sg_pipeline_desc){
+		.shader = shd_grid,
+		.layout.attrs[0].format = SG_VERTEXFORMAT_FLOAT3,
+		.primitive_type = SG_PRIMITIVETYPE_TRIANGLE_STRIP,
+		.depth = {.compare = SG_COMPAREFUNC_LESS_EQUAL, .write_enabled = false},
+		.colors[0].blend = {
+			.enabled = true,
+			.src_factor_rgb = SG_BLENDFACTOR_SRC_ALPHA,
+			.dst_factor_rgb = SG_BLENDFACTOR_ONE_MINUS_SRC_ALPHA,
+			.src_factor_alpha = SG_BLENDFACTOR_ONE,
+			.dst_factor_alpha = SG_BLENDFACTOR_ZERO
+		}
+	});
+
 	state.world = tics_world_create((tics_world_desc){
 		.gravity = {0.0f, -9.81f, 0.0f},
 		.air_friction_linear = 0.0f,
@@ -339,6 +406,17 @@ static void frame(void) {
 		sg_apply_uniforms(0, &SG_RANGE(vs));
 		sg_draw(0, sphere_indices_length, 1);
 	}
+
+	// Render Grid
+	sg_apply_pipeline(state.pip_grid);
+	sg_apply_bindings(&state.bind_grid);
+	vs_grid_params_t vs_grid = {.mvp = vp};
+	sg_apply_uniforms(0, &SG_RANGE(vs_grid));
+	sg_draw(0, 4, 1);
+
+	// Render Preview Sphere
+	sg_apply_pipeline(state.pip);
+	sg_apply_bindings(&state.bind_sphere);
 
 	// Render Preview Sphere
 	if (state.spawn_mode != SPAWN_MODE_NONE) {
