@@ -207,7 +207,7 @@ static body_ref get_body(const tics_world* world, tics_body_id id) {
 		assert(ref.index < (size_t)arrlen(world->rigid_bodies) && "Invalid index");
 	}
 	else if (ref.type == STATIC_BODY) {
-		assert(ref.index < (size_t)arrlen(world->rigid_bodies) && "Invalid index");
+		assert(ref.index < (size_t)arrlen(world->static_bodies) && "Invalid index");
 	}
 	else { assert(false && "Body type not implemented"); }
 
