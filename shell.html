@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>Tics Physics Demo</title>
+	<style>
+		body {
+			margin: 0;
+			padding: 0;
+			background-color: #1a1a1a;
+			display: flex;
+			justify-content: center;
+			align-items: center;
+			height: 100vh;
+			overflow: hidden;
+		}
+
+		/* The canvas id must be 'canvas' for Emscripten to find it automatically */
+		canvas.emscripten {
+			border: none;
+			background-color: #000;
+			width: 100vw;
+			height: 100vh;
+		}
+	</style>
+</head>
+
+<body>
+	<canvas class="emscripten" id="canvas" oncontextmenu="event.preventDefault()" tabindex="-1"></canvas>
+
+	<!-- Minimal Emscripten module setup -->
+	<script type='text/javascript'>
+		var Module = {
+			canvas: (function () {
+				return document.getElementById('canvas');
+			})()
+		};
+	</script>
+
+	<!-- Emscripten will replace this tag with the actual JS code during compilation -->
+	{{{ SCRIPT }}}
+</body>
+
+</html>
