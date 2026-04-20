@@ -140,6 +140,7 @@ static struct {
 	int target_type; // 0 = none, 1 = dynamic, 2 = static
 	int target_index;
 	bool ui_visible;
+	float warning_timer;
 } state;
 
 static bool ray_sphere_intersect(su_vec3 ray_o, su_vec3 ray_d, su_vec3 sphere_c, float r,
@@ -226,11 +227,11 @@ static void spawn_dynamic_sphere(void) {
 	state.entities[state.entity_count++] = (game_entity){ .body = body };
 }
 
-static void spawn_static_sphere(void) {
-	if (state.ground_count >= MAX_STATIC_GROUNDS) return;
+static bool spawn_static_sphere(void) {
+	if (state.ground_count >= MAX_STATIC_GROUNDS) return false;
 	
 	su_vec3 spawn_pos;
-	if (!get_static_spawn_position(&spawn_pos)) return;
+	if (!get_static_spawn_position(&spawn_pos)) return true; // Not a limit error, just invalid placement
 
 	state.ground_positions[state.ground_count] = spawn_pos;
 
@@ -241,6 +242,7 @@ static void spawn_static_sphere(void) {
 	});
 
 	state.ground_bodies[state.ground_count++] = body;
+	return true;
 }
 
 static void init(void) {
@@ -375,6 +377,10 @@ static void frame(void) {
 
 	if (sapp_mouse_locked()) {
 		su_camera_navigate(&state.camera, &state.input, clamped_dt);
+	}
+
+	if (state.warning_timer > 0.0f) {
+		state.warning_timer -= clamped_dt;
 	}
 
 	state.accumulator += clamped_dt;
@@ -534,7 +540,12 @@ static void frame(void) {
 		sdtx_color3b(255, 255, 255);
 		sdtx_puts(" [Space] Execute Action\n");
 		sdtx_puts(" [Tab]   Toggle UI\n");
-		
+
+		if (state.warning_timer > 0.0f) {
+			sdtx_color3b(255, 51, 51); // Red
+			sdtx_printf("\n Cannot place more than %d static spheres!\n", MAX_STATIC_GROUNDS);
+		}
+
 		sdtx_draw();
 	}
 
@@ -565,7 +576,9 @@ static void event(const sapp_event* ev) {
 			if (state.spawn_mode == SPAWN_MODE_DYNAMIC) {
 				spawn_dynamic_sphere();
 			} else if (state.spawn_mode == SPAWN_MODE_STATIC) {
-				spawn_static_sphere();
+				if (!spawn_static_sphere()) {
+					state.warning_timer = 2.0f;
+				}
 			} else if (state.spawn_mode == SPAWN_MODE_DELETE) {
 				if (state.target_type == 1 && state.target_index >= 0) {
 					tics_world_remove_body(state.world, state.entities[state.target_index].body);
