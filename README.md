@@ -1,5 +1,13 @@
 # Tipsy Tower
 
+Ludum Dare 59 Compo entry.
+
+A small game (made in 6 hours) that uses my [own physics engine](https://github.com/timo-eberl/tics) (not made in 6 hours).
+
+Stack spheres to create a (signal) tower!
+
+![Stacked spheres](cover.png)
+
 ## Web Build
 
 ```
