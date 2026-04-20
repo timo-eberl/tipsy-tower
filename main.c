@@ -27,7 +27,7 @@
 
 #define SPHERE_RADIUS 1.0f
 #define DYNAMIC_BODIES 1000
-#define MAX_STATIC_GROUNDS 10
+#define MAX_STATIC_GROUNDS 16
 
 #define ELASTICITY 0.9f
 
@@ -59,7 +59,7 @@ static const char* fs_source = SHADER_PREFIX
 	"  vec3 normal = normalize(v_world_normal);\n"
 	"  vec3 light_dir = normalize(vec3(0.5, 1.0, 0.3));\n"
 	"  float n_dot_l = max(dot(normal, light_dir), 0.25);\n"
-	"  vec3 grid = step(fract(v_local_pos * 4.0), vec3(0.08));\n"
+	"  vec3 grid = step(fract(v_local_pos * 4.0 + 0.5), vec3(0.08));\n"
 	"  float is_grid = max(max(grid.x, grid.y), grid.z);\n"
 	"  vec3 final_color = mix(color.rgb, vec3(1), is_grid * 0.5) * n_dot_l;\n"
 	"  frag_color = vec4(final_color, color.a);\n"
@@ -141,6 +141,9 @@ static struct {
 	int target_index;
 	bool ui_visible;
 	float warning_timer;
+
+	tics_body_id candidate_id;
+	float candidate_timer;
 } state;
 
 static bool ray_sphere_intersect(su_vec3 ray_o, su_vec3 ray_d, su_vec3 sphere_c, float r,
@@ -389,7 +392,8 @@ static void frame(void) {
 		state.accumulator -= PHYSICS_TIMESTEP;
 	}
 
-	float current_highest_y = 0.0f;
+	float current_highest_y = -1000.0f;
+	tics_body_id current_highest_id = 0;
 
 	for (int i = 0; i < state.entity_count;) {
 		tics_transform tf = tics_body_get_transform(state.world, state.entities[i].body);
@@ -401,15 +405,38 @@ static void frame(void) {
 		} else {
 			if (tf.position.y > current_highest_y) {
 				current_highest_y = tf.position.y;
+				current_highest_id = state.entities[i].body;
 			}
 			i++;
 		}
 	}
 
-	float frame_tower_height = current_highest_y > 0.0f ? current_highest_y + SPHERE_RADIUS : 0.0f;
-	if (frame_tower_height > state.max_tower_height) {
-		state.max_tower_height = frame_tower_height;
-		printf("New Tower Height Record: %.2f\n", state.max_tower_height);
+	float frame_tower_height = current_highest_y > -1000.0f ? current_highest_y + SPHERE_RADIUS : 0.0f;
+
+	// Require the new height to be at least 0.1 units higher to prevent micro-jitter re-triggers
+	if (frame_tower_height > state.max_tower_height + 0.1f) {
+		if (current_highest_id == state.candidate_id) {
+			tics_vec3 vel = tics_body_get_velocity(state.world, current_highest_id);
+			float speed_sq = (vel.x * vel.x) + (vel.y * vel.y) + (vel.z * vel.z);
+			
+			// If it's moving very slowly (speed < 0.5)
+			if (speed_sq < 0.25f) {
+				state.candidate_timer += clamped_dt;
+				if (state.candidate_timer >= 1.0f) {
+					state.max_tower_height = frame_tower_height;
+					state.candidate_timer = 0.0f;
+				}
+			} else {
+				// Rapidly decay the timer if it starts wobbling instead of a hard reset
+				state.candidate_timer -= clamped_dt * 2.0f;
+				if (state.candidate_timer < 0.0f) state.candidate_timer = 0.0f;
+			}
+		} else {
+			state.candidate_id = current_highest_id;
+			state.candidate_timer = 0.0f;
+		}
+	} else {
+		state.candidate_timer = 0.0f;
 	}
 
 	float w = (float)sapp_width();
@@ -469,7 +496,14 @@ static void frame(void) {
 		fs_params_t fs_dyn = {.color = {0.95f, 0.5f, 0.1f, 1.0f}};
 		if (state.spawn_mode == SPAWN_MODE_DELETE && state.target_type == 1 && state.target_index == i) {
 			fs_dyn.color[0] = 1.0f; fs_dyn.color[1] = 0.2f; fs_dyn.color[2] = 0.2f;
+		} else if (state.entities[i].body == state.candidate_id && state.candidate_timer > 0.0f) {
+			// Smoothly shift the color from orange to bright yellow based on the timer progress
+			float t = state.candidate_timer;
+			fs_dyn.color[0] = 0.95f + (0.05f * t); // 0.95 -> 1.00
+			fs_dyn.color[1] = 0.50f + (0.50f * t); // 0.50 -> 1.00
+			fs_dyn.color[2] = 0.10f * (1.00f - t); // 0.10 -> 0.00
 		}
+
 		sg_apply_uniforms(1, &SG_RANGE(fs_dyn));
 		sg_draw(0, sphere_indices_length, 1);
 	}
@@ -521,8 +555,17 @@ static void frame(void) {
 		sdtx_home();
 		
 		sdtx_color3b(255, 255, 255);
-		sdtx_printf("Max Tower Height: %.2f\n\n", state.max_tower_height);
-		
+		sdtx_printf("Max Tower Height: %.2f\n", state.max_tower_height);
+
+		if (state.candidate_timer > 0.0f && frame_tower_height > state.max_tower_height + 0.1f) {
+			sdtx_color3b(255, 255, 0); // Yellow
+			sdtx_printf("Validating new height: %.2f (%d%%)\n\n", 
+						frame_tower_height, (int)(state.candidate_timer * 100.0f));
+		} else {
+			sdtx_puts("\n\n"); // Keep spacing identical
+		}
+
+		sdtx_color3b(255, 255, 255);
 		sdtx_puts("Controls:\n");
 		
 		if (state.spawn_mode == SPAWN_MODE_DYNAMIC) sdtx_color3b(242, 128, 25);
