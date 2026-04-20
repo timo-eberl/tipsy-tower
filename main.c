@@ -567,7 +567,11 @@ static void frame(void) {
 
 		sdtx_color3b(255, 255, 255);
 		sdtx_puts("Controls:\n");
-		
+		sdtx_puts(" [WASD]  Sideways Movement\n");
+		sdtx_puts(" [QE]    Up/Down Movement\n");
+		sdtx_puts(" [Space] Execute Action\n");
+		sdtx_puts(" [Tab]   Toggle UI\n");
+
 		if (state.spawn_mode == SPAWN_MODE_DYNAMIC) sdtx_color3b(242, 128, 25);
 		else sdtx_color3b(150, 150, 150);
 		sdtx_puts(" [1] Spawn Dynamic\n");
@@ -581,8 +585,6 @@ static void frame(void) {
 		sdtx_puts(" [3] Delete Mode\n");
 		
 		sdtx_color3b(255, 255, 255);
-		sdtx_puts(" [Space] Execute Action\n");
-		sdtx_puts(" [Tab]   Toggle UI\n");
 
 		if (state.warning_timer > 0.0f) {
 			sdtx_color3b(255, 51, 51); // Red
