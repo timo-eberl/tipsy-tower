@@ -661,6 +661,6 @@ sapp_desc sokol_main(int argc, char* argv[]) {
 		.width = 1280,
 		.height = 720,
 		.window_title = "Tics Tower Builder",
-		.icon.sokol_default = true
+		.icon.sokol_default = false
 	};
 }
